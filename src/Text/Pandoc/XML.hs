@@ -90,6 +90,7 @@ inTagsSimple tagType = inTags False tagType []
 inTagsIndented :: String -> Doc -> Doc
 inTagsIndented tagType = inTags True tagType []
 
+-- TODO use any named entities?
 -- | Escape all non-ascii characters using numerical entities.
 toEntities :: String -> String
 toEntities [] = ""
