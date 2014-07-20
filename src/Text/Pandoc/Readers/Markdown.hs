@@ -474,7 +474,7 @@ block = do
                , codeBlockIndented
                , blockQuote
                , hrule
-               , orderedList
+               , orderedList -- including new: (@tag) examples
                , definitionList
                , noteBlock -- that is, noteKeys
                , referenceKey -- Keys for [tag]'d reference-style {a,img}Links
@@ -827,6 +827,16 @@ listItem start = try $ do
   updateState (\st -> st {stateParserContext = oldContext})
   return contents
 
+sequence2 :: (Monad m, Monad n) => [m (n b)] -> m (n [b])
+sequence2 = foldr k (return $ return [])
+            where k m ms = do { n <- m; ns <- ms; return $ do { x <- n; xs <- ns; return (x:xs) } }
+
+mapM2 :: (Monad m, Monad n) => (a -> m (n b)) -> [a] -> m (n [b])
+mapM2 k as = sequence2 (map k as)
+
+fmap2 :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
+fmap2 k as = (k <$>) <$> as
+
 orderedList :: MarkdownParser (F Blocks)
 orderedList = try $ do
   (start, style, delim) <- lookAhead anyOrderedListStart
@@ -834,13 +844,31 @@ orderedList = try $ do
           delim `elem` [DefaultDelim, Period]) $
     guardEnabled Ext_fancy_lists
   when (style == Example) $ guardEnabled Ext_example_lists
-  items <- fmap sequence $ many1 $ listItem
+  -- items :: [F Blocks]
+  items <- many1 $ listItem
                  ( try $ do
                      optional newline -- if preceded by Plain block in a list
                      skipNonindentSpaces
                      orderedListMarker style delim )
   start' <- option 1 $ guardEnabled Ext_startnum >> return start
-  return $ B.orderedListWith (start', style, delim) <$> fmap compactify' items
+  let { insertLabels :: [F Blocks] -> MarkdownParser (F [Blocks])
+      ; insertLabels lst = let { aux :: Int -> Blocks -> Inlines -> Blocks
+                               ; aux i body ins = B.divWith ("ex"++show i,[],[("style","display:none")]) (B.plain ins) <> body
+                               } in
+                           let { getCaption :: M.Map Int (Int, String) -> Int -> MarkdownParser (F Inlines)
+                               ; getCaption captions i = parseFromString (mconcat <$> many1 inline) $ snd $ M.findWithDefault (0,"?") i captions
+                               } in
+                           let { injectOneLabel :: M.Map Int (Int, String) -> (Int, F Blocks) -> MarkdownParser (F Blocks)
+                               ; injectOneLabel captions (i, fbody) = do fins <- getCaption captions i
+                                                                         return $ do ins <- fins
+                                                                                     body <- fbody
+                                                                                     return $ aux i body ins
+                               } in
+                           do
+                              captions <- stateExampleCaptions <$> getState
+                              compactify' `fmap2` mapM2 (injectOneLabel captions) (zip [start'..] lst)
+      }
+  B.orderedListWith (start',style,delim) `fmap2` (if style == Example then insertLabels else return . fmap compactify' . sequence) items
 
 bulletList :: MarkdownParser (F Blocks)
 bulletList = do
@@ -1459,17 +1487,31 @@ ltSign = do
   return $ return $ B.str "<"
 
 -- Could be called "exampleMarker"?
--- Looks like: ...(@tag)
+-- Looks like: ...(@tag), (@subtag), (@tag|suffix), (@|caption)
+-- Not parsed: (@tag@), (@tag@subtag), (@)
 exampleRef :: MarkdownParser (F Inlines)
 exampleRef = try $ do
   guardEnabled Ext_example_lists
   char '@'
-  lab <- many1 (alphaNum <|> oneOf "-_")
+  tag <- many (alphaNum <|> oneOf "-_") -- identifier
+  -- TODO permit some line breaks? currently we permit spaces but exclude (unescaped) ')' and '.'
+  sufx <- (char '|' >> many1 (escaped (oneOf ".)") <|> noneOf "\t\r\n.)")) <|> return ""
+  parsed_sufx <- parseFromString (trimInlinesF . mconcat <$> many1 inline) sufx
   return $ do
-    st <- askF
-    return $ case M.lookup lab (stateExamples st) of
-                  Just n    -> B.str (show n)
-                  Nothing   -> B.str ('@':lab)
+    oldindices <- asksF stateExamples
+    oldcaptions <- asksF stateExampleCaptions
+    case M.lookup tag oldindices of
+        _ | null tag && not (null sufx) -> return $ wrap 0 $ B.str (sufx)
+        Nothing -> return $ B.str ('@':tag ++ if null sufx then "" else '|':sufx)
+        Just n -> let (displayed,m) = M.findWithDefault (0,"?") n oldcaptions in
+                  case sufx of
+                    "" -> return $ wrap displayed $ B.str m
+                    _ -> do
+                            s <- parsed_sufx
+                            return $ wrap displayed $ (B.str m <> s)
+  where
+    wrap :: Int -> Inlines -> Inlines
+    wrap displayed body = B.spanWith ("",["exampleRef"],[("data-exref","ex"++show displayed)]) body
 
 symbol :: MarkdownParser (F Inlines)
 symbol = do
@@ -1939,6 +1981,7 @@ cite = do
 textualCite :: MarkdownParser (F Inlines)
 textualCite = try $ do
   (_, key) <- citeKey
+  hasExampleSuffix <- option False (lookAhead (char '|') *> return True) -- True <$ ...
   let first = Citation{ citationId      = key
                       , citationPrefix  = []
                       , citationSuffix  = []
@@ -1954,10 +1997,15 @@ textualCite = try $ do
        Nothing   ->
          (do (cs, raw) <- withRaw $ bareloc first
              return $ (flip B.cite (B.text $ '@':key ++ " " ++ raw)) <$> cs)
-         <|> return (do st <- askF
-                        return $ case M.lookup key (stateExamples st) of
-                                 Just n -> B.str (show n)
-                                 _      -> B.cite [first] $ B.str $ '@':key)
+         <|> if hasExampleSuffix
+               then mzero -- we need to parse farther; let exampleRef handle it
+               else return (do st <- askF
+                               return $ case M.lookup key (stateExamples st) of
+                                                 Just n ->
+                                                   -- can't just fail and let exampleRef handle it, because we're inside the F monad
+                                                   let (displayed,m) = M.findWithDefault (0,"?") n (stateExampleCaptions st) in
+                                                   B.spanWith ("",["exampleRef"],[("data-exref","ex"++show displayed)]) (B.str $ m)
+                                                 _      -> B.cite [first] $ B.str $ '@':key)
 
 bareloc :: Citation -> MarkdownParser (F [Citation])
 bareloc c = try $ do

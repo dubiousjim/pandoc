@@ -585,15 +585,66 @@ exampleNum :: Stream s m Char
            => ParserT s ParserState m (ListNumberStyle, Int)
 exampleNum = do
   char '@'
-  lab <- many (alphaNum <|> satisfy (\c -> c == '_' || c == '-'))
+  pos <- getPosition
+  tag <- many (alphaNum <|> oneOf "-_")
+  subtag <- case null tag of
+              False -> (char '@' >> (many1 (alphaNum <|> oneOf "_-") <|> return "@")) <|> return ""
+              _ -> return ""
+  -- TODO permit some line breaks? currently we permit spaces but exclude (unescaped) ')' and '.'
+  suffix <- (char '|' >> many1 (escaped (oneOf ".)") <|> noneOf "\t\r\n.)")) <|> return ""
   st <- getState
-  let num = stateNextExample st
-  let newlabels = if null lab
-                     then stateExamples st
-                     else M.insert lab num $ stateExamples st
-  updateState $ \s -> s{ stateNextExample = num + 1
-                       , stateExamples    = newlabels }
-  return (Example, num)
+  let (oldnext, oldsubnexts, oldfull, oldpartial, oldindices, oldcaptions) = (stateNextExample st, stateSubnexts st, stateFullExamples st, statePartialExamples st, stateExamples st, stateExampleCaptions st)
+{-
+      stateNextExample     :: Int,           -- ^ Next example counter                                          oldnext (paper count)
+      stateSubnexts        :: M.Map String Int, -- ^ Map from parent tags to next subtag counter                oldsubnexts (tag -> next subtag index to use)
+      stateFullExamples    :: Int,           -- ^ Positive index for next example marker                        oldfull (next free main tag to display)
+      statePartialExamples :: Int,           -- ^ Negative index for next partial example marker                oldpartial (next free partial tag index)
+      stateExamples        :: M.Map String Int, -- ^ Map from example tags to (positive or negative) indices    oldindices (saved tags -> indices)
+      stateExampleCaptions :: M.Map Int String, -- ^ Map from example indices to caption strings                oldcaptions (indices -> text)
+-}
+  -- if (@tag), check that tag not already in use
+  if tag /= "" && null subtag && null suffix && M.member tag oldindices then addWarning (Just pos) $ "Reusing example tag "++tag else return ()
+  -- if (@tag@subtag), check that subtag not already in use
+  if subtag /= "" && subtag /= "@" && null suffix && M.member subtag oldindices then addWarning (Just pos) $ "Overwriting example subtag "++subtag else return ()
+  let (marker, newsubnexts, newfull, newpartial, newindices, newcaptions) = (marker0, newsubnexts0, newfull0, newpartial2, newindices2, newcaptions3)
+                                                 where
+                                                   (showMain, newfull0, newpartial1, newindices1, newcaptions1) =
+                                                       if null tag
+                                                         then if null suffix
+                                                                then (show oldfull, oldfull + 1, oldpartial, oldindices, oldcaptions)
+                                                                -- ""++""++suffix will occupy captions[oldnext], no need to allocate a new full or partial index
+                                                                else ("", oldfull, oldpartial, oldindices, oldcaptions)
+                                                         else case M.lookup tag oldindices of
+                                                                -- use existing Main caption, no need to allocate a new full or partial index
+                                                                Just tagidx -> (snd (M.findWithDefault (0,"?") tagidx oldcaptions), oldfull, oldpartial, oldindices, oldcaptions)
+                                                                Nothing -> if null subtag && null suffix
+                                                                             -- newly allocated tag exhausts the marker
+                                                                             then (show oldfull, oldfull + 1, oldpartial, M.insert tag oldnext oldindices, oldcaptions)
+                                                                             -- newly allocated tag is just partial
+                                                                             else (show oldfull, oldfull + 1, oldpartial - 1, M.insert tag oldpartial oldindices, M.insert oldpartial (oldnext, show oldfull) oldcaptions)
+                                                   (showSub, newsubnexts0, (newindices2, newpartial2, newcaptions2)) =
+                                                       if null subtag
+                                                         then ("", oldsubnexts, (newindices1, newpartial1, newcaptions1))
+                                                         else
+                                                           -- relying on this to fail when subtag == "@"
+                                                           let subnext = M.findWithDefault 1 tag oldsubnexts in
+                                                           ([chr $ subnext + ord 'a' - 1], M.insert tag (subnext + 1) oldsubnexts,
+                                                             if subtag == "@"
+                                                               then (newindices1, newpartial1, newcaptions1)
+                                                               else if null suffix
+                                                                      -- we've exhausted the marker
+                                                                      then (M.insert subtag oldnext newindices1, newpartial1, newcaptions1)
+                                                                      else (M.insert subtag newpartial1 newindices1, newpartial1 - 1, M.insert newpartial1 (oldnext, showMain ++ showSub) newcaptions1))
+                                                   marker0 = showMain ++ showSub ++ suffix
+                                                   newcaptions3 = M.insert oldnext (oldnext,marker0) newcaptions2
+  updateState $ \s -> s{ stateNextExample     = oldnext + 1
+                       , stateSubnexts        = newsubnexts
+                       , stateFullExamples    = newfull
+                       , statePartialExamples = newpartial
+                       , stateExamples        = newindices
+                       , stateExampleCaptions = newcaptions
+                       }
+  return (Example, oldnext)
 
 -- | Parses a '#' returns (DefaultStyle, 1).
 defaultNum :: Stream s m Char => ParserT s st m (ListNumberStyle, Int)
@@ -894,8 +945,14 @@ data ParserState = ParserState
       stateHeaderTable     :: [HeaderType],  -- ^ Ordered list of header types used
       stateHeaders         :: M.Map Inlines String, -- ^ List of headers and ids (used for implicit ref links)
       stateIdentifiers     :: [String],      -- ^ List of header identifiers used
-      stateNextExample     :: Int,           -- ^ Number of next example
-      stateExamples        :: M.Map String Int, -- ^ Map from example labels to numbers
+
+      stateNextExample     :: Int,           -- ^ Next example counter
+      stateSubnexts        :: M.Map String Int, -- ^ Map from parent tags to next subtag counter
+      stateFullExamples    :: Int,           -- ^ Positive index for next example marker
+      statePartialExamples :: Int,           -- ^ Negative index for next partial example marker
+      stateExamples        :: M.Map String Int, -- ^ Map from example tags to (positive or negative) indices
+      stateExampleCaptions :: M.Map Int (Int, String), -- ^ Map from example indices to (displayed index, caption string)
+
       stateHasChapters     :: Bool,          -- ^ True if \chapter encountered
       stateMacros          :: [Macro],       -- ^ List of macros defined so far
       stateRstDefaultRole  :: String,        -- ^ Current rST default interpreted text role
@@ -993,8 +1050,14 @@ defaultParserState =
                   stateHeaderTable     = [],
                   stateHeaders         = M.empty,
                   stateIdentifiers     = [],
+
                   stateNextExample     = 1,
+                  stateSubnexts        = M.empty,
+                  stateFullExamples    = 1,
+                  statePartialExamples = -1,
                   stateExamples        = M.empty,
+                  stateExampleCaptions = M.empty,
+
                   stateHasChapters     = False,
                   stateMacros          = [],
                   stateRstDefaultRole  = "title-reference",
