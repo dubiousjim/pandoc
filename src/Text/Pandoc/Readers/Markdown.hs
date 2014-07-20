@@ -337,12 +337,6 @@ parseMarkdown = do
   let Pandoc _ bs = B.doc $ runF blocks st
   return $ Pandoc meta bs
 
-addWarning :: Maybe SourcePos -> String -> MarkdownParser ()
-addWarning mbpos msg =
-  updateState $ \st -> st{
-    stateWarnings = (msg ++ maybe "" (\pos -> " " ++ show pos) mbpos) :
-                     stateWarnings st }
-
 -- Key for [tag]'d reference-style {a,img}Links
 -- Looks like:    [tag]: url "title" attributes..., checks for uniqueness
 referenceKey :: MarkdownParser (F Blocks)

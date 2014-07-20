@@ -110,6 +110,7 @@ module Text.Pandoc.Parsing ( anyLine,
                              askF,
                              asksF,
                              token,
+                             addWarning,
                              -- * Re-exports from Text.Pandoc.Parsec
                              Stream,
                              runParser,
@@ -567,6 +568,14 @@ decimal :: Stream s m Char => ParserT s st m (ListNumberStyle, Int)
 decimal = do
   num <- many1 digit
   return (Decimal, read num)
+
+-- | Copied from Readers/Markdown.hs
+addWarning :: Stream s m Char
+           => Maybe SourcePos -> String -> ParserT s ParserState m ()
+addWarning mbpos msg =
+  updateState $ \st -> st{
+    stateWarnings = (msg ++ maybe "" (\pos -> " " ++ show pos) mbpos) :
+                     stateWarnings st }
 
 -- | Parses a '@' and optional label and
 -- returns (DefaultStyle, [next example number]).  The next
