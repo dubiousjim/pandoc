@@ -1030,12 +1030,31 @@ stripMarkdownAttribute s = renderTags' $ map filterAttrib $ parseTags s
 -- line block
 --
 
+-- '^<space>line*'s continue previous span without any LineBreak
+-- empty '^|whitespace' lines break into Paras
+-- otherwise, '^| line's just ~~> B.LineBreak, line, ...
+-- '^|' followed by nonspaceChar will interpreted as non-lineBlock
+
+-- We need a different parser than Parsing.lineBlockLines, to avoid chomping blanklines between lineBlocks
 lineBlock :: MarkdownParser (F Blocks)
 lineBlock = try $ do
   guardEnabled Ext_line_blocks
-  lines' <- lineBlockLines >>=
-            mapM (parseFromString (trimInlinesF . mconcat <$> many inline))
-  return $ B.para <$> (mconcat $ intersperse (return B.linebreak) lines')
+    -- parseParas :: MarkdownParser (F Blocks)
+  let parseParas = try $ do
+                     -- flines :: [F Inlines]
+                     flines <- do
+                                 lines' <- many1 lineBlockLine
+                                 skipMany $ try (char '|' >> blankline)
+                                 lookAhead ((blankline >> return "") <|> lineBlockLine)
+                                 mapM (parseFromString
+                                        (trimInlinesF . mconcat <$> many inline)) lines'
+                     return $ B.para <$> (mconcat $ intersperse (return B.linebreak) flines)
+  -- fblocks1 :: [F Blocks]
+  fblocks1 <- many1 parseParas
+  skipMany blankline
+  -- [F Blocks] ~~ sequence ~~> F [Blocks] ~~> F [[Block]] ~~> fblocks2 :: F [Block]
+  let fblocks2 = concat <$> map B.toList <$> sequence fblocks1
+  return $ B.singleton . Div ("", ["%lodown-lineblock"], []) <$> fblocks2
 
 --
 -- Tables
