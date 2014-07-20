@@ -203,6 +203,7 @@ phpMarkdownExtraExtensions = Set.fromList
   [ Ext_footnotes
   , Ext_pipe_tables
   , Ext_raw_html
+  , Ext_markdown_in_html_blocks
   , Ext_markdown_attribute
   , Ext_fenced_code_blocks
   , Ext_definition_lists_colon
@@ -231,6 +232,7 @@ multimarkdownExtensions :: Set Extension
 multimarkdownExtensions = Set.fromList
   [ Ext_pipe_tables
   , Ext_raw_html
+  , Ext_markdown_in_html_blocks
   , Ext_markdown_attribute
   , Ext_link_attributes
   , Ext_raw_tex
