@@ -630,13 +630,14 @@ codeBlockFenced = try $ do
      <|> (guardEnabled Ext_backtick_code_blocks >> lookAhead (char '`'))
   size <- blockDelimiter (== c) Nothing
   skipMany spaceChar
-  attr <- option ([],[],[]) $
+  (ident, classes, keyvals) <- option nullAttr $
             try (guardEnabled Ext_fenced_code_attributes >> attributes)
            <|> ((\x -> ("",[toLanguageId x],[])) <$> many1 nonspaceChar)
+  let classes2 = map (\k -> if k == "kbd" then "%lodown-kbd" else if k == "samp" then "%lodown-samp" else k) classes
   blankline
   contents <- manyTill anyLine (blockDelimiter (== c) (Just size))
   blanklines
-  return $ return $ B.codeBlockWith attr $ intercalate "\n" contents
+  return $ return $ B.codeBlockWith (ident, classes2, keyvals) $ intercalate "\n" contents
 
 -- correctly handle github language identifiers
 toLanguageId :: String -> String
