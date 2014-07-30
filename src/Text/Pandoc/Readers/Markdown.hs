@@ -85,6 +85,7 @@ readMarkdownWithWarnings opts s =
          warnings <- stateWarnings <$> getState
          return (doc, warnings)
 
+-- | Trim leading and trailing Sp (spaces) from an Inlines.
 trimInlinesF :: F Inlines -> F Inlines
 trimInlinesF = liftM trimInlines
 
@@ -162,6 +163,7 @@ inlinesInBalancedBrackets :: MarkdownParser (F Inlines)
 inlinesInBalancedBrackets = charsInBalancedBrackets >>=
   parseFromString (trimInlinesF . mconcat <$> many inline)
 
+-- | Return a raw string omitting outermost [ ]s
 charsInBalancedBrackets :: MarkdownParser [Char]
 charsInBalancedBrackets = do
   char '['
@@ -341,6 +343,8 @@ addWarning mbpos msg =
     stateWarnings = (msg ++ maybe "" (\pos -> " " ++ show pos) mbpos) :
                      stateWarnings st }
 
+-- Key for [tag]'d reference-style {a,img}Links
+-- Looks like:    [tag]: url "title" attributes..., checks for uniqueness
 referenceKey :: MarkdownParser (F Blocks)
 referenceKey = try $ do
   pos <- getPosition
@@ -360,7 +364,9 @@ referenceKey = try $ do
   _kvs <- option [] $ guardEnabled Ext_link_attributes
                       >> many (try $ spnl >> keyValAttr)
   blanklines
+  -- target = (escaped url, title or "")
   let target = (escapeURI $ trimr src,  tit)
+  -- check (toKey "tag") for uniqueness
   st <- getState
   let oldkeys = stateKeys st
   let key = toKey raw
@@ -388,6 +394,7 @@ quotedTitle c = try $ do
 -- | PHP Markdown Extra style abbreviation key.  Currently
 -- we just skip them, since Pandoc doesn't have an element for
 -- an abbreviation.
+-- Looks like:    *[HTML]: Hyper Text Markup Language
 abbrevKey :: MarkdownParser (F Blocks)
 abbrevKey = do
   guardEnabled Ext_abbreviations
@@ -399,6 +406,8 @@ abbrevKey = do
     blanklines
     return $ return mempty
 
+-- Looks like:    ...[^notetag], returns "notetag"
+-- inline parser `note/smartNoteMarker` wraps this parser with an Ext_footnotes guard and checks for uniqueness
 noteMarker :: MarkdownParser String
 noteMarker = string "[^" >> many1Till (satisfy $ not . isBlank) (char ']')
 
@@ -415,6 +424,8 @@ rawLines = do
   rest <- many rawLine
   return $ unlines (first:rest)
 
+-- Could be called "noteKey"
+-- Looks like:    [^notetag]:\n? Body, checks for uniqueness
 noteBlock :: MarkdownParser (F Blocks)
 noteBlock = try $ do
   pos <- getPosition
@@ -429,6 +440,7 @@ noteBlock = try $ do
   optional blanklines
   parsed <- parseFromString parseBlocks raw
   let newnote = (ref, parsed)
+  -- (stateNotes', stateNotes) map to noteKeys as (F Blocks, raw String)
   oldnotes <- stateNotes' <$> getState
   case lookup ref oldnotes of
     Just _  -> addWarning (Just pos) $ "Duplicate note reference `" ++ ref ++ "'"
@@ -466,8 +478,8 @@ block = do
                , hrule
                , orderedList
                , definitionList
-               , noteBlock
-               , referenceKey
+               , noteBlock -- that is, noteKeys
+               , referenceKey -- Keys for [tag]'d reference-style {a,img}Links
                , abbrevKey
                , para
                , plain
@@ -485,6 +497,7 @@ block = do
 header :: MarkdownParser (F Blocks)
 header = setextHeader <|> atxHeader <?> "header"
 
+-- ## headers ##
 atxHeader :: MarkdownParser (F Blocks)
 atxHeader = try $ do
   level <- many1 (char '#') >>= return . length
@@ -507,6 +520,8 @@ atxClosing = try $ do
   blanklines
   return attr
 
+-- headers
+-- =======
 setextHeaderEnd :: MarkdownParser Attr
 setextHeaderEnd = try $ do
   attr <- option nullAttr
@@ -1419,6 +1434,8 @@ ltSign = do
   char '<'
   return $ return $ B.str "<"
 
+-- Could be called "exampleMarker"?
+-- Looks like: ...(@tag)
 exampleRef :: MarkdownParser (F Inlines)
 exampleRef = try $ do
   guardEnabled Ext_example_lists
@@ -1603,7 +1620,9 @@ endline = try $ do
 -- links
 --
 
--- a reference label for a link
+-- Could be called "referenceMarker"
+-- returns (F Inlines, raw string) of tag, without [ ]s
+-- Looks like:    ...[tag], without ^tag
 reference :: MarkdownParser (F Inlines, String)
 reference = do notFollowedBy' (string "[^")   -- footnote reference
                withRaw $ trimInlinesF <$> inlinesInBalancedBrackets
@@ -1613,7 +1632,8 @@ parenthesizedChars = do
   result <- charsInBalanced '(' ')' litChar
   return $ '(' : result ++ ")"
 
--- source for a link, with optional title
+-- Inline URL and title for aLink and imgLink
+-- Looks like:    ....(url "title")
 source :: MarkdownParser (String, String)
 source = do
   char '('
@@ -1632,37 +1652,50 @@ source = do
 linkTitle :: MarkdownParser String
 linkTitle = quotedTitle '"' <|> quotedTitle '\''
 
+-- Could be called "aLink": either regular (with inline source = (url "title")) or reference ([tag] ~~> separate referenceKey)
+-- aMarker as a MarkdownParser (F Inlines), a singleton of: Link spans ("url", "title")
+-- Looks like:    ...[caption](source) or [caption][tag]?
 link :: MarkdownParser (F Inlines)
 link = try $ do
   st <- getState
   guard $ stateAllowLinks st
   setState $ st{ stateAllowLinks = False }
+  -- lab could be called "caption"
   (lab,raw) <- reference
   setState $ st{ stateAllowLinks = True }
   regLink B.link lab <|> referenceLink B.link (lab,raw)
 
+-- Looks like: ...[caption](source)
 regLink :: (String -> String -> Inlines -> Inlines)
         -> F Inlines -> MarkdownParser (F Inlines)
 regLink constructor lab = try $ do
   (src, tit) <- source
   return $ constructor src tit <$> lab
 
--- a link like [this][ref] or [this][] or [this]
+-- will be called as: referenceLink cons ("caption" as F Inlines, raw "caption")
+-- Looks like:    ....[caption][tag] or [caption][] or [caption]
 referenceLink :: (String -> String -> Inlines -> Inlines)
               -> (F Inlines, String) -> MarkdownParser (F Inlines)
 referenceLink constructor (lab, raw) = do
   sp <- (True <$ lookAhead (char ' ')) <|> return False
+  -- ref could be called "tag"
+  -- (ref, raw') will be: "tag" as (F Inlines, raw) <|> (mempty, "")
+  -- I don't see how it could be "[]", is that when reference fails consumptively?
   (ref,raw') <- try
            (skipSpaces >> optional (newline >> skipSpaces) >> reference)
            <|> return (mempty, "")
   let labIsRef = raw' == "" || raw' == "[]"
+  -- key = toKey (raw "tag" or raw "caption")
   let key = toKey $ if labIsRef then raw else raw'
   parsedRaw <- parseFromString (mconcat <$> many inline) raw'
   fallback <- parseFromString (mconcat <$> many inline) $ dropBrackets raw
   implicitHeaderRefs <- option False $
                          True <$ guardEnabled Ext_implicit_header_references
+  -- should have same sig as cons attrs "url" "title" <$> caption_F_Inlines
   let makeFallback = do
+       -- parsed [tag] (raw')
        parsedRaw' <- parsedRaw
+       -- parsed caption (raw)
        fallback' <- fallback
        return $ B.str "[" <> fallback' <> B.str "]" <>
                 (if sp && not (null raw) then B.space else mempty) <>
@@ -1672,6 +1705,7 @@ referenceLink constructor (lab, raw) = do
     case M.lookup key keys of
        Nothing        -> do
          headers <- asksF stateHeaders
+         -- ref' will be: "tag" as Inlines or "caption" as Inlines
          ref' <- if labIsRef then lab else ref
          if implicitHeaderRefs
             then case M.lookup ref' headers of
@@ -1705,6 +1739,9 @@ autoLink = try $ do
   extra <- fromEntities <$> manyTill nonspaceChar (char '>')
   return $ return $ B.link (src ++ escapeURI extra) "" (B.str $ orig ++ extra)
 
+-- Could be called "imgLink": either regular (with inline source = (url "title")) or reference ([tag] ~~> separate referenceKey)
+-- imgMarker as a MarkdownParser (F Inlines), a singleton of Image spans ("url", "title")
+-- Looks like:    ...![caption](source) or ![caption][tag]?
 image :: MarkdownParser (F Inlines)
 image = try $ do
   char '!'
@@ -1715,6 +1752,9 @@ image = try $ do
                               _  -> B.image src
   regLink constructor lab <|> referenceLink constructor (lab,raw)
 
+-- Could be called "smartNoteMarker"
+-- Wraps noteMarker with an Ext_footnotes guard and checks for uniqueness
+-- Looks like: ...[^notetag], checks for uniqueness
 note :: MarkdownParser (F Inlines)
 note = try $ do
   guardEnabled Ext_footnotes
