@@ -221,7 +221,11 @@ readers = [ ("native"       , StringReader $ \_ s -> return $ readNative s)
            ,("markdown_phpextra" , StringReader markdown)
            ,("markdown_github" , StringReader markdown)
            ,("markdown_mmd",  StringReader markdown)
-           ,("markdown_lodown",  StringReader markdown)
+           ,("markdown_lodown",  StringReader $ \o ->
+              markdown o{ readerIndentedCodeClasses =
+                            if null (readerIndentedCodeClasses o)
+                               then ["%lodown-indented"]
+                               else readerIndentedCodeClasses o })
            ,("rst"          , mkStringReader readRST )
            ,("mediawiki"    , mkStringReader readMediaWiki)
            ,("docbook"      , mkStringReader readDocBook)
