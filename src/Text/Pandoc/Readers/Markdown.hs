@@ -942,8 +942,8 @@ plain = fmap B.plain . trimInlinesF . mconcat <$> many1 inline
 -- raw html
 --
 
-htmlElement :: MarkdownParser String
-htmlElement = rawVerbatimBlock
+htmlBlockElement :: MarkdownParser String
+htmlBlockElement = rawVerbatimBlock
           <|> strictHtmlBlock
           <|> liftM snd (htmlTag isBlockTag)
 
@@ -974,7 +974,7 @@ htmlBlock = do
 
 htmlBlock' :: MarkdownParser (F Blocks)
 htmlBlock' = try $ do
-    first <- htmlElement
+    first <- htmlBlockElement
     skipMany spaceChar
     optional blanklines
     return $ return $ B.rawBlock "html" first
