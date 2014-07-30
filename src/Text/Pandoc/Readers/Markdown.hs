@@ -1484,9 +1484,10 @@ code = try $ do
                        (char '\n' >> notFollowedBy' blankline >> return " "))
                       (try (skipSpaces >> count (length starts) (char '`') >>
                       notFollowedBy (char '`')))
-  attr <- option ([],[],[]) (try $ guardEnabled Ext_inline_code_attributes >>
+  (ident, classes, keyvals) <- option nullAttr (try $ guardEnabled Ext_inline_code_attributes >>
                                    optional whitespace >> attributes)
-  return $ return $ B.codeWith attr $ trim $ concat result
+  -- let classes2 = map (\c -> if c == "kbd" then "%lodown-kbd" else if c == "samp" then "%lodown-samp" else c) classes
+  return $ return $ B.codeWith (ident, classes, keyvals) $ trim $ concat result
 
 math :: MarkdownParser (F Inlines)
 math =  (return . B.displayMath <$> (mathDisplay >>= applyMacros'))
