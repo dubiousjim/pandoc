@@ -110,6 +110,7 @@ data Extension =
     | Ext_line_blocks         -- ^ RST style line blocks
     | Ext_image_anchors          -- ^ href=... attribute on an image reference wrap the image in an <a> element
     | Ext_verbatim_spans           -- ^ Don't process markup inside <code>, <kbd>, <samp>
+    | Ext_lodown_writer       -- ^ Will be added to LaTeX and Html Writers when markdown_lodown is the Reader
     deriving (Show, Read, Enum, Eq, Ord, Bounded)
 
 pandocExtensions :: Set Extension

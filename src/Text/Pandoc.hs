@@ -256,8 +256,12 @@ writers = [
                        writeEPUB o{ writerEpubVersion = Just EPUB3 })
   ,("fb2"          , IOStringWriter writeFB2)
   ,("html"         , PureStringWriter writeHtmlString)
+  ,("lohtml"       , PureStringWriter $ \o ->
+     writeHtmlString o{ writerExtensions = Set.insert Ext_lodown_writer $ writerExtensions o })
   ,("html5"        , PureStringWriter $ \o ->
      writeHtmlString o{ writerHtml5 = True })
+  ,("lohtml5"      , PureStringWriter $ \o ->
+     writeHtmlString o{ writerHtml5 = True, writerExtensions = Set.insert Ext_lodown_writer $ writerExtensions o })
   ,("icml"         , PureStringWriter writeICML)
   ,("s5"           , PureStringWriter $ \o ->
      writeHtmlString o{ writerSlideVariant = S5Slides
@@ -276,6 +280,8 @@ writers = [
   ,("opml"         , PureStringWriter writeOPML)
   ,("opendocument" , PureStringWriter writeOpenDocument)
   ,("latex"        , PureStringWriter writeLaTeX)
+  ,("lolatex"      , PureStringWriter $ \o ->
+     writeLaTeX o{ writerExtensions = Set.insert Ext_lodown_writer $ writerExtensions o })
   ,("beamer"       , PureStringWriter $ \o ->
      writeLaTeX o{ writerBeamer = True })
   ,("context"      , PureStringWriter writeConTeXt)

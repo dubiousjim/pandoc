@@ -864,7 +864,7 @@ usageMessage programName = usageInfo
      '\n' : replicate 16 ' ' ++
      "[*for pdf output, use latex or beamer and -o FILENAME.pdf]\nOptions:")
   where
-    writers'names = sort $ "pdf*" : map fst writers
+    writers'names = sort $ "pdf*" : (filter (\w -> w /= "lolatex" && w /= "lohtml" && w /= "lohtml5") $ map fst writers)
     readers'names = sort $ map fst readers
 
 -- Determine default reader based on source file extensions
@@ -1048,12 +1048,21 @@ main = do
   let writerName' = case map toLower writerName of
                           []        -> defaultWriterName outputFile
                           "epub2"   -> "epub"
-                          "html4"   -> "html"
+                          "html4"   -> if "markdown_lodown" `isPrefixOf` readerName' then "lohtml" else "html"
+                          "html"    -> if "markdown_lodown" `isPrefixOf` readerName' then "lohtml" else "html"
+                          "html5"   -> if "markdown_lodown" `isPrefixOf` readerName' then "lohtml5" else "html5"
+                          "latex"   -> if "markdown_lodown" `isPrefixOf` readerName' then "lolatex" else "latex"
+                          -- these should only be selected implicitly, so let's force them to be rejected
+                          "lohtml"  -> "lohtml "
+                          "lohtml4" -> "lohtml4 "
+                          "lohtml5" -> "lohtml5 "
+                          "lolatex" -> "lolatex "
                           x         -> x
 
   let pdfOutput = map toLower (takeExtension outputFile) == ".pdf"
 
   let laTeXOutput = "latex" `isPrefixOf` writerName' ||
+                    "lolatex" `isPrefixOf` writerName' ||
                     "beamer" `isPrefixOf` writerName'
 
   writer <- if ".lua" `isSuffixOf` writerName'
@@ -1277,6 +1286,7 @@ main = do
                       >>= writerFn outputFile . handleEntities
           where htmlFormat = writerName' `elem`
                                ["html","html+lhs","html5","html5+lhs",
+                                "lohtml","lohtml5",
                                "s5","slidy","slideous","dzslides","revealjs"]
                 selfcontain = if selfContained && htmlFormat
                                  then makeSelfContained
