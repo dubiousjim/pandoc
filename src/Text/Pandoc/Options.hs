@@ -108,6 +108,7 @@ data Extension =
     | Ext_mmd_header_identifiers -- ^ Multimarkdown style header identifiers [myid]
     | Ext_implicit_header_references -- ^ Implicit reference links for headers
     | Ext_line_blocks         -- ^ RST style line blocks
+    | Ext_image_anchors          -- ^ href=... attribute on an image reference wrap the image in an <a> element
     | Ext_verbatim_spans           -- ^ Don't process markup inside <code>, <kbd>, <samp>
     deriving (Show, Read, Enum, Eq, Ord, Bounded)
 
@@ -192,6 +193,7 @@ lodownExtensions = Set.fromList
   , Ext_header_attributes
   , Ext_implicit_header_references
   , Ext_line_blocks
+  , Ext_image_anchors -- added
   , Ext_verbatim_spans
   ]
 

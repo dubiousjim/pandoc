@@ -1805,15 +1805,27 @@ autoLink = try $ do
 -- Looks like:    ...![caption](source) or ![caption][tag]?
 image :: MarkdownParser (F Inlines)
 image = try $ do
+  exts <- getOption readerExtensions
   char '!'
   (lab,raw) <- reference
   defaultExt <- getOption readerDefaultImageExtension
   let fixExtension src = case takeExtension src of
                           "" -> B.image (addExtension src defaultExt)
                           _  -> B.image src
-  let wrapper attr@(ident,classes,kvs) src tit caption = case attr == nullAttr of
-                                                 True -> fixExtension src tit caption
-                                                 _ -> B.spanWith (ident,["%lodown-attributes"]++classes,kvs) $ fixExtension src tit caption
+  let wrapper attr@(ident,classes,kvs) src tit caption = case lookup "href" kvs of
+                                                 _ | attr == nullAttr -> fixExtension src tit caption
+                                                 _ | Ext_image_anchors `Set.notMember` exts -> B.spanWith (ident,["%lodown-attributes"]++classes,kvs) $ fixExtension src tit caption
+                                                 Nothing -> B.spanWith (ident,["%lodown-attributes"]++classes,kvs) $ fixExtension src tit caption
+                                                 Just url ->
+                                                            let (tit_outer, tit_inner) = ("",tit) in
+                                                            let kv_outer = [(k,v) | (k,v) <- kvs, k `elem` ["target","download","rel","type"]] in
+                                                            let kv_inner = [(k,v) | (k,v) <- kvs, k `notElem` ["href","target","download","rel","type"]] in
+                                                            let a body = if (ident,classes,kv_outer) == nullAttr
+                                                                           then B.link url tit_outer body
+                                                                           else B.spanWith (ident,["%lodown-attributes"]++classes,kv_outer) $ B.link url tit_outer body in
+                                                            a $ if null kv_inner
+                                                                           then fixExtension src tit_inner caption
+                                                                           else B.spanWith ("",["%lodown-attributes"],kv_inner) $ fixExtension src tit_inner caption
   regLink fixExtension lab <|> referenceLink wrapper (lab,raw)
 
 -- Could be called "smartNoteMarker"
