@@ -360,20 +360,24 @@ referenceKey = try $ do
   let betweenAngles = try $ char '<' >> manyTill litChar (char '>')
   src <- try betweenAngles <|> sourceURL
   tit <- option "" referenceTitle
-  -- currently we just ignore MMD-style link/image attributes
   _kvs <- option [] $ guardEnabled Ext_link_attributes
-                      >> many (try $ spnl >> keyValAttr)
+                      >> many (try $ spnl >> (identifierAttr <|> classAttr <|> keyValAttr))
   blanklines
   -- target = (escaped url, title or "")
   let target = (escapeURI $ trimr src,  tit)
   -- check (toKey "tag") for uniqueness
   st <- getState
   let oldkeys = stateKeys st
+  let oldattrs = stateAttrs st
   let key = toKey raw
   case M.lookup key oldkeys of
     Just _  -> addWarning (Just pos) $ "Duplicate link reference `" ++ raw ++ "'"
     Nothing -> return ()
-  updateState $ \s -> s { stateKeys = M.insert key target oldkeys }
+  updateState $ \s -> s { stateKeys = M.insert key target oldkeys
+                        , stateAttrs = if null _kvs
+                                         then oldattrs
+                                         else M.insert key (foldl (\x f -> f x) nullAttr _kvs) oldattrs
+                        }
   return $ return mempty
 
 referenceTitle :: MarkdownParser String
@@ -1716,7 +1720,10 @@ link = try $ do
   -- lab could be called "caption"
   (lab,raw) <- reference
   setState $ st{ stateAllowLinks = True }
-  regLink B.link lab <|> referenceLink B.link (lab,raw)
+  let wrapper attr@(ident,classes,kvs) src tit caption = if attr == nullAttr
+                                                           then B.link src tit caption
+                                                           else B.spanWith (ident,["%lodown-attributes"]++classes,kvs) $ B.link src tit caption
+  regLink B.link lab <|> referenceLink wrapper (lab,raw)
 
 -- Looks like: ...[caption](source)
 regLink :: (String -> String -> Inlines -> Inlines)
@@ -1727,7 +1734,7 @@ regLink constructor lab = try $ do
 
 -- will be called as: referenceLink cons ("caption" as F Inlines, raw "caption")
 -- Looks like:    ....[caption][tag] or [caption][] or [caption]
-referenceLink :: (String -> String -> Inlines -> Inlines)
+referenceLink :: (Attr -> String -> String -> Inlines -> Inlines)
               -> (F Inlines, String) -> MarkdownParser (F Inlines)
 referenceLink constructor (lab, raw) = do
   sp <- (True <$ lookAhead (char ' ')) <|> return False
@@ -1755,6 +1762,7 @@ referenceLink constructor (lab, raw) = do
                 parsedRaw'
   return $ do
     keys <- asksF stateKeys
+    attrs <- asksF stateAttrs
     case M.lookup key keys of
        Nothing        -> do
          headers <- asksF stateHeaders
@@ -1762,10 +1770,10 @@ referenceLink constructor (lab, raw) = do
          ref' <- if labIsRef then lab else ref
          if implicitHeaderRefs
             then case M.lookup ref' headers of
-                   Just ident -> constructor ('#':ident) "" <$> lab
+                   Just ident -> constructor nullAttr ('#':ident) "" <$> lab
                    Nothing    -> makeFallback
             else makeFallback
-       Just (src,tit) -> constructor src tit <$> lab
+       Just (src,tit) -> constructor (M.findWithDefault nullAttr key attrs) src tit <$> lab
 
 dropBrackets :: String -> String
 dropBrackets = reverse . dropRB . reverse . dropLB
@@ -1800,10 +1808,13 @@ image = try $ do
   char '!'
   (lab,raw) <- reference
   defaultExt <- getOption readerDefaultImageExtension
-  let constructor src = case takeExtension src of
-                              "" -> B.image (addExtension src defaultExt)
-                              _  -> B.image src
-  regLink constructor lab <|> referenceLink constructor (lab,raw)
+  let fixExtension src = case takeExtension src of
+                          "" -> B.image (addExtension src defaultExt)
+                          _  -> B.image src
+  let wrapper attr@(ident,classes,kvs) src tit caption = case attr == nullAttr of
+                                                 True -> fixExtension src tit caption
+                                                 _ -> B.spanWith (ident,["%lodown-attributes"]++classes,kvs) $ fixExtension src tit caption
+  regLink fixExtension lab <|> referenceLink wrapper (lab,raw)
 
 -- Could be called "smartNoteMarker"
 -- Wraps noteMarker with an Ext_footnotes guard and checks for uniqueness

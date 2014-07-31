@@ -175,6 +175,7 @@ lodownExtensions = Set.fromList
   , Ext_inline_code_attributes
   , Ext_markdown_in_html_blocks
   , Ext_escaped_line_breaks
+  , Ext_link_attributes -- added
   , Ext_fancy_lists
   , Ext_startnum
   -- , Ext_definition_lists
