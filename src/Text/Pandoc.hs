@@ -221,6 +221,7 @@ readers = [ ("native"       , StringReader $ \_ s -> return $ readNative s)
            ,("markdown_phpextra" , StringReader markdown)
            ,("markdown_github" , StringReader markdown)
            ,("markdown_mmd",  StringReader markdown)
+           ,("markdown_lodown",  StringReader markdown)
            ,("rst"          , mkStringReader readRST )
            ,("mediawiki"    , mkStringReader readMediaWiki)
            ,("docbook"      , mkStringReader readDocBook)
@@ -297,6 +298,7 @@ getDefaultExtensions "markdown_strict" = strictExtensions
 getDefaultExtensions "markdown_phpextra" = phpMarkdownExtraExtensions
 getDefaultExtensions "markdown_mmd" = multimarkdownExtensions
 getDefaultExtensions "markdown_github" = githubMarkdownExtensions
+getDefaultExtensions "markdown_lodown" = lodownExtensions
 getDefaultExtensions "markdown"        = pandocExtensions
 getDefaultExtensions "plain"           = pandocExtensions
 getDefaultExtensions "org"             = Set.fromList [Ext_citations]
