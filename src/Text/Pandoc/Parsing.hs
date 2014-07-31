@@ -1128,6 +1128,7 @@ registerHeader (ident,classes,kvs) header' = do
   ids <- extractIdentifierList <$> getState
   exts <- getOption readerExtensions
   let insert' = M.insertWith (\_new old -> old)
+  -- TODO headers
   if null ident && Ext_auto_identifiers `Set.member` exts
      then do
        let id' = uniqueIdent (B.toList header') ids
