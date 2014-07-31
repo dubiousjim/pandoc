@@ -87,6 +87,7 @@ data Extension =
     | Ext_lists_without_preceding_blankline -- ^ Allow lists without preceding blank
     | Ext_startnum            -- ^ Make start number of ordered list significant
     | Ext_definition_lists    -- ^ Definition lists as in pandoc, mmd, php
+    | Ext_definition_lists_colon -- ^ Definition lists, only using `:` marker
     | Ext_compact_definition_lists  -- ^ Definition lists without
                                -- space between items, and disallow laziness
     | Ext_example_lists       -- ^ Markdown-style numbered examples
@@ -176,7 +177,8 @@ lodownExtensions = Set.fromList
   , Ext_escaped_line_breaks
   , Ext_fancy_lists
   , Ext_startnum
-  , Ext_definition_lists
+  -- , Ext_definition_lists
+  , Ext_definition_lists_colon -- added
   , Ext_example_lists
   , Ext_all_symbols_escapable
   , Ext_intraword_underscores
@@ -199,7 +201,7 @@ phpMarkdownExtraExtensions = Set.fromList
   , Ext_raw_html
   , Ext_markdown_attribute
   , Ext_fenced_code_blocks
-  , Ext_definition_lists
+  , Ext_definition_lists_colon
   , Ext_intraword_underscores
   , Ext_header_attributes
   , Ext_abbreviations
@@ -232,7 +234,7 @@ multimarkdownExtensions = Set.fromList
   , Ext_intraword_underscores
   , Ext_mmd_title_block
   , Ext_footnotes
-  , Ext_definition_lists
+  , Ext_definition_lists_colon
   , Ext_all_symbols_escapable
   , Ext_implicit_header_references
   , Ext_auto_identifiers

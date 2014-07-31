@@ -851,10 +851,10 @@ bulletList = do
 
 -- definition lists
 
-defListMarker :: MarkdownParser ()
-defListMarker = do
+defListMarker :: Bool -> MarkdownParser ()
+defListMarker onlyColon = do
   sps <- nonindentSpaces
-  char ':' <|> char '~'
+  char ':' <|> (if onlyColon then mzero else char '~')
   tabStop <- getOption readerTabStop
   let remaining = tabStop - (length sps + 1)
   if remaining > 0
@@ -862,26 +862,26 @@ defListMarker = do
      else mzero
   return ()
 
-definitionListItem :: Bool -> MarkdownParser (F (Inlines, [Blocks]))
-definitionListItem compact = try $ do
+definitionListItem :: Bool -> Bool -> MarkdownParser (F (Inlines, [Blocks]))
+definitionListItem compact onlyColon = try $ do
   rawLine' <- anyLine
-  raw <- many1 $ defRawBlock compact
+  raw <- many1 $ defRawBlock compact onlyColon
   term <- parseFromString (trimInlinesF . mconcat <$> many inline) rawLine'
   contents <- mapM (parseFromString parseBlocks) raw
   optional blanklines
   return $ liftM2 (,) term (sequence contents)
 
-defRawBlock :: Bool -> MarkdownParser String
-defRawBlock compact = try $ do
+defRawBlock :: Bool -> Bool -> MarkdownParser String
+defRawBlock compact onlyColon = try $ do
   hasBlank <- option False $ blankline >> return True
-  defListMarker
+  defListMarker onlyColon
   firstline <- anyLine
   let dline = try
                ( do notFollowedBy blankline
                     if compact -- laziness not compatible with compact
                        then () <$ indentSpaces
                        else (() <$ indentSpaces)
-                             <|> notFollowedBy defListMarker
+                             <|> notFollowedBy (defListMarker onlyColon)
                     anyLine )
   rawlines <- many dline
   cont <- liftM concat $ many $ try $ do
@@ -894,19 +894,23 @@ defRawBlock compact = try $ do
 
 definitionList :: MarkdownParser (F Blocks)
 definitionList = try $ do
-  lookAhead (anyLine >> optional blankline >> defListMarker)
-  compactDefinitionList <|> normalDefinitionList
+  exts <- getOption readerExtensions
+  let onlyColon = Ext_compact_definition_lists `Set.notMember` exts && Ext_definition_lists_colon `Set.member` exts
+  lookAhead (anyLine >> optional blankline >> defListMarker onlyColon)
+  compactDefinitionList <|> normalDefinitionList onlyColon
 
 compactDefinitionList :: MarkdownParser (F Blocks)
 compactDefinitionList = do
   guardEnabled Ext_compact_definition_lists
-  items <- fmap sequence $ many1 $ definitionListItem True
+  items <- fmap sequence $ many1 $ definitionListItem True False
   return $ B.definitionList <$> fmap compactify'DL items
 
-normalDefinitionList :: MarkdownParser (F Blocks)
-normalDefinitionList = do
+normalDefinitionList :: Bool -> MarkdownParser (F Blocks)
+normalDefinitionList onlyColon = do
+  exts <- getOption readerExtensions
+  guard (onlyColon || Ext_definition_lists `Set.member` exts)
   guardEnabled Ext_definition_lists
-  items <- fmap sequence $ many1 $ definitionListItem False
+  items <- fmap sequence $ many1 $ definitionListItem False onlyColon
   return $ B.definitionList <$> items
 
 --
