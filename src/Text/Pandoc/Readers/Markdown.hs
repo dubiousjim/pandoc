@@ -1421,6 +1421,7 @@ inline = choice [ whitespace
                 , superscript
                 , inlineNote  -- after superscript because of ^[link](/foo)^
                 , autoLink
+                , verbatimInlineHtml
                 , spanHtml
                 , rawHtmlInline
                 , escapedChar
@@ -1488,6 +1489,24 @@ code = try $ do
                                    optional whitespace >> attributes)
   -- let classes2 = map (\c -> if c == "kbd" then "%lodown-kbd" else if c == "samp" then "%lodown-samp" else c) classes
   return $ return $ B.codeWith (ident, classes, keyvals) $ trim $ concat result
+
+-- <code>verbatim</code>, also for <kbd> and <samp>
+verbatimInlineHtml :: MarkdownParser (F Inlines)
+verbatimInlineHtml = try $ do
+  guardEnabled Ext_verbatim_spans
+  (TagOpen el attrs, _) <- htmlTag (\t -> t ~== TagOpen "code" []
+                                       || t ~== TagOpen "kbd" []
+                                       || t ~== TagOpen "samp" [])
+  (_, raw) <- withRaw (manyTill inline (lookAhead $ htmlTag (~== TagClose el)))
+  htmlTag (const True)
+  let ident = fromMaybe "" $ lookup "id" attrs
+  let classes = maybe [] words $ lookup "class" attrs
+  let keyvals = [(k,v) | (k,v) <- attrs, k /= "id" && k /= "class"]
+  let el' = case el of
+              "kbd" -> B.spanWith (ident, ["%lodown-kbd"]++classes, keyvals) . B.str
+              "samp" -> B.spanWith (ident, ["%lodown-samp"]++classes, keyvals) . B.str
+              _ -> B.codeWith (ident, classes, keyvals)
+  return $ return $ el' $ trim raw
 
 math :: MarkdownParser (F Inlines)
 math =  (return . B.displayMath <$> (mathDisplay >>= applyMacros'))
