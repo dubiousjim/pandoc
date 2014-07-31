@@ -135,6 +135,12 @@ getDefaultTemplate user writer = do
        "markdown_github"   -> getDefaultTemplate user "markdown"
        "markdown_mmd"      -> getDefaultTemplate user "markdown"
        "markdown_phpextra" -> getDefaultTemplate user "markdown"
+       "lohtml" ->  let fname = "templates" </> "lodown" <.> drop 2 format
+                    in E.try $ readDataFileUTF8 user fname
+       "lohtml5" -> let fname = "templates" </> "lodown" <.> drop 2 format
+                    in E.try $ readDataFileUTF8 user fname
+       "lolatex" -> let fname = "templates" </> "lodown" <.> drop 2 format
+                    in E.try $ readDataFileUTF8 user fname
        _        -> let fname = "templates" </> "default" <.> format
                    in  E.try $ readDataFileUTF8 user fname
 
