@@ -1422,6 +1422,7 @@ inline = choice [ whitespace
                 , inlineNote  -- after superscript because of ^[link](/foo)^
                 , autoLink
                 , verbatimInlineHtml
+                , xscriptHtml
                 , spanHtml
                 , rawHtmlInline
                 , escapedChar
@@ -1600,6 +1601,14 @@ subscript = fmap B.subscript <$> try (do
   guardEnabled Ext_subscript
   char '~'
   mconcat <$> many1Till (notFollowedBy spaceChar >> inline) (char '~'))
+
+-- <sup>inlines</sup> and <sub>inlines</sub>
+-- we parse these into our AST even if Ext_superscript, Ext_subscript parsing are disabled
+xscriptHtml :: MarkdownParser (F Inlines)
+xscriptHtml = try $ do
+  (TagOpen el _, _) <- htmlTag (\t -> tagOpen (=="sup") null t || tagOpen (=="sub") null t)
+  contents <- mconcat <$> manyTill inline (htmlTag (~== TagClose el))
+  return $ (if el == "sup" then B.superscript else B.subscript) <$> contents
 
 whitespace :: MarkdownParser (F Inlines)
 whitespace = spaceChar >> return <$> (lb <|> regsp) <?> "whitespace"
